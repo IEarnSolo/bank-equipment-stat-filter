@@ -3,14 +3,24 @@ package bankequipmentstatfilter;
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.InventoryID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.PluginChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.http.api.item.ItemStats;
 
@@ -36,6 +46,18 @@ public class BankEquipmentStatFilterPlugin extends Plugin
 	@Inject
 	private ClientToolbar clientToolbar;
 
+	@Inject
+	private EquipmentBankViewService bankViewService;
+
+	@Inject
+	private EquipmentBankPlaceholderOverlay bankPlaceholderOverlay;
+
+	@Inject
+	private EquipmentBankSectionOverlay bankSectionOverlay;
+
+	@Inject
+	private OverlayManager overlayManager;
+
 	private BankEquipmentStatFilterPanel panel;
 
 	private NavigationButton navButton;
@@ -47,6 +69,7 @@ public class BankEquipmentStatFilterPlugin extends Plugin
 	{
 		if (event.getItemContainer() == client.getItemContainer(InventoryID.BANK))
 		{
+			bankViewService.setBankOpen(true);
 			Item[] bankItems = event.getItemContainer().getItems();
 
 			items = Arrays.stream(bankItems)
@@ -60,13 +83,21 @@ public class BankEquipmentStatFilterPlugin extends Plugin
 					})
 					.filter(Objects::nonNull)
 					.toArray(ItemWithStat[]::new);
+			if (panel != null)
+			{
+				panel.refreshResults();
+			}
 		}
 	}
 
 	@Override
 	protected void startUp()
 	{
+		bankViewService.startUp();
+		overlayManager.add(bankPlaceholderOverlay);
+		overlayManager.add(bankSectionOverlay);
 		panel = injector.getInstance(BankEquipmentStatFilterPanel.class);
+		panel.refreshResults();
 
 		final BufferedImage icon = ImageUtil.loadImageResource(BankEquipmentStatFilterPlugin.class, "pluginIcon.png");
 
@@ -83,26 +114,151 @@ public class BankEquipmentStatFilterPlugin extends Plugin
 	@Override
 	protected void shutDown()
 	{
+		bankViewService.shutDown();
+		overlayManager.remove(bankPlaceholderOverlay);
+		overlayManager.remove(bankSectionOverlay);
 		clientToolbar.removeNavigation(navButton);
 	}
 
-	public void bankFilter(EquipmentInventorySlot slot, EquipmentStat statType, boolean allSlots)
+	@Subscribe
+	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		if (items == null) {
+		if (event.getGroupId() == InterfaceID.BANKMAIN)
+		{
+			bankViewService.setBankOpen(true);
+			bankViewService.restoreTemporaryViewIfNeeded();
+			if (panel != null)
+			{
+				panel.refreshViewInBankButtons();
+			}
+		}
+	}
+
+	@Subscribe(priority = 1.0f)
+	public void onWidgetClosed(WidgetClosed event)
+	{
+		if (event.getGroupId() == InterfaceID.BANKMAIN && event.isUnload())
+		{
+			bankViewService.closeTemporaryView();
+			bankViewService.setBankOpen(false);
+			if (panel != null)
+			{
+				panel.refreshViewInBankButtons();
+			}
+		}
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			bankViewService.setBankOpen(false);
+			bankViewService.clearRetainedTemporaryView();
+			if (panel != null)
+			{
+				panel.refreshViewInBankButtons();
+			}
+		}
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if ("bankequipmentstatfilter".equals(event.getGroup())
+			&& "keepTemporaryBankView".equals(event.getKey()))
+		{
+			bankViewService.onKeepTemporaryViewChanged();
+		}
+	}
+
+	@Subscribe(priority = -1.0f)
+	public void onScriptPostFired(ScriptPostFired event)
+	{
+		if (event.getScriptId() == ScriptID.BANKMAIN_FINISHBUILDING)
+		{
+			bankViewService.applyFriendlyBankTitle();
+		}
+	}
+
+	@Subscribe
+	public void onPluginChanged(PluginChanged event)
+	{
+		if (event.getPlugin() instanceof BankTagsPlugin)
+		{
+			bankViewService.refreshBankTagsIntegration();
+			if (panel != null)
+			{
+				panel.refreshViewInBankButtons();
+			}
+		}
+	}
+
+	public void filterByStat(EquipmentInventorySlot selectedSlot, EquipmentStat stat, boolean allSlots)
+	{
+		if (items == null)
+		{
 			panel.displayMessage("You need to open your bank once so the plugin can sync with it");
 			return;
 		}
 
+		List<EquipmentResultSection> sections = new ArrayList<>();
+		for (EquipmentInventorySlot slot : EquipmentInventorySlot.values())
+		{
+			if (!allSlots && slot != selectedSlot)
+			{
+				continue;
+			}
+			List<ItemWithStat> sectionItems = getSortedItems(slot, stat);
+			if (!sectionItems.isEmpty())
+			{
+				String slotName = formatSlotName(slot);
+				sections.add(new EquipmentResultSection(slot.name(),
+					slotName + " — " + stat.getDisplayName(), stat, sectionItems));
+			}
+		}
+		panel.displaySections(sections, allSlots, "All — " + stat.getDisplayName());
+	}
 
-		Map<Integer, List<ItemWithStat>> sortedItems = Arrays.stream(items)
-				.filter(item -> getItemStat(item.getStats(), statType) > 0 && (item.getStats().getEquipment().getSlot() == slot.getSlotIdx() || allSlots))
-				.collect(Collectors.groupingBy(item -> item.getStats().getEquipment().getSlot()));
+	public void filterBySlot(EquipmentInventorySlot slot, EquipmentStat selectedStat, boolean allStats)
+	{
+		if (items == null)
+		{
+			panel.displayMessage("You need to open your bank once so the plugin can sync with it");
+			return;
+		}
 
-		sortedItems.forEach((slotIdx, slotItems) -> {
-			// Mutate the list to sort it by the stat
-			slotItems.sort(Comparator.comparing(item -> getItemStat(item.getStats(), statType), Comparator.reverseOrder()));
-		});
-		panel.displayItems(sortedItems, statType, allSlots);
+		List<EquipmentResultSection> sections = new ArrayList<>();
+		for (EquipmentStat stat : EquipmentStat.values())
+		{
+			if (!allStats && stat != selectedStat)
+			{
+				continue;
+			}
+			List<ItemWithStat> sectionItems = getSortedItems(slot, stat);
+			if (!sectionItems.isEmpty())
+			{
+				sections.add(new EquipmentResultSection(stat.getDisplayName().toUpperCase(Locale.ROOT),
+					stat.getDisplayName() + " — " + formatSlotName(slot), stat, sectionItems));
+			}
+		}
+		panel.displaySections(sections, allStats, "All — " + formatSlotName(slot));
+	}
+
+	private List<ItemWithStat> getSortedItems(EquipmentInventorySlot slot, EquipmentStat stat)
+	{
+		return Arrays.stream(items)
+			.filter(item -> item.getStats().getEquipment().getSlot() == slot.getSlotIdx())
+			.filter(item -> getItemStat(item.getStats(), stat) > 0)
+			.sorted(Comparator.comparing(
+				item -> getItemStat(item.getStats(), stat), Comparator.reverseOrder()))
+			.collect(Collectors.toList());
+	}
+
+	private static String formatSlotName(EquipmentInventorySlot slot)
+	{
+		String name = slot.name().toLowerCase(Locale.ROOT);
+		return Character.toUpperCase(name.charAt(0)) + name.substring(1);
 	}
 
 	public int getItemStat(ItemStats stats, EquipmentStat stat)
