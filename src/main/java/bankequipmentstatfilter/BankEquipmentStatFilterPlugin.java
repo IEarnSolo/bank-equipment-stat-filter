@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 @PluginDescriptor(
 		name = "Bank Equipment Stat Filter",
 		description = "Adds a panel to search your bank for your best-in-slot equipment across all stats, and best stats across all slots",
-		tags = {"bank", "stat", "equipment", "filter", "best is slot", "bis"}
+		tags = {"bank", "stat", "equipment", "filter", "best in slot", "bis"}
 )
 @Slf4j
 public class BankEquipmentStatFilterPlugin extends Plugin
