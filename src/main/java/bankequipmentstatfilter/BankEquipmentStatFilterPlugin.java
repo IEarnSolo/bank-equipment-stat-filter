@@ -31,12 +31,21 @@ import java.util.stream.Collectors;
 
 @PluginDescriptor(
 		name = "Bank Equipment Stat Filter",
-		description = "Allows to filter/sort for equipment slot/stat",
-		tags = {"bank", "stat", "equipment", "filter"}
+		description = "Adds a panel to search your bank for your best-in-slot equipment across all stats, and best stats across all slots",
+		tags = {"bank", "stat", "equipment", "filter", "best is slot", "bis"}
 )
 @Slf4j
 public class BankEquipmentStatFilterPlugin extends Plugin
 {
+	public static EquipmentInventorySlot[] getSupportedSlots()
+	{
+		return Arrays.stream(EquipmentInventorySlot.values())
+			.filter(slot -> slot != EquipmentInventorySlot.ARMS
+				&& slot != EquipmentInventorySlot.HAIR
+				&& slot != EquipmentInventorySlot.JAW)
+			.toArray(EquipmentInventorySlot[]::new);
+	}
+
 	@Inject
 	private Client client;
 
@@ -203,7 +212,7 @@ public class BankEquipmentStatFilterPlugin extends Plugin
 		}
 
 		List<EquipmentResultSection> sections = new ArrayList<>();
-		for (EquipmentInventorySlot slot : EquipmentInventorySlot.values())
+		for (EquipmentInventorySlot slot : getSupportedSlots())
 		{
 			if (!allSlots && slot != selectedSlot)
 			{

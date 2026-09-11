@@ -32,9 +32,11 @@ public class BankEquipmentStatFilterPanel extends PluginPanel
     private final JPanel itemsPanel = new JPanel();
     private final JTabbedPane searchTabs = new JTabbedPane();
     private final JComboBox<EquipmentStat> byStatStatDropDown = new JComboBox<>(EquipmentStat.values());
-    private final JComboBox<EquipmentInventorySlot> byStatSlotDropDown = new JComboBox<>(EquipmentInventorySlot.values());
+    private final JComboBox<EquipmentInventorySlot> byStatSlotDropDown =
+        new JComboBox<>(BankEquipmentStatFilterPlugin.getSupportedSlots());
     private final JCheckBox showAllSlots = new JCheckBox("Show all slots", true);
-    private final JComboBox<EquipmentInventorySlot> bySlotSlotDropDown = new JComboBox<>(EquipmentInventorySlot.values());
+    private final JComboBox<EquipmentInventorySlot> bySlotSlotDropDown =
+        new JComboBox<>(BankEquipmentStatFilterPlugin.getSupportedSlots());
     private final JComboBox<EquipmentStat> bySlotStatDropDown = new JComboBox<>(EquipmentStat.values());
     private final JCheckBox showAllStats = new JCheckBox("Show all stats", true);
     private boolean controlsReady;
